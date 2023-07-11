@@ -13,6 +13,8 @@ on:
         required: true
       AZURE_SUBSCRIPTION_ID:
         required: true
+      WEB_API_KEY:
+        required: true
     outputs:
       deployment-id:
         description: "The Id of the current deployment."
