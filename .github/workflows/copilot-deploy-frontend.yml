@@ -6,6 +6,9 @@ on:
       ENVIRONMENT:
         required: true
         type: string
+      DEPLOYMENT_NAME:
+        required: true
+        type: string
     secrets:
       AZURE_CLIENT_ID:
         required: true
@@ -62,4 +65,4 @@ jobs:
 
       - name: Deploy SWA
         run: |
-          samples/apps/copilot-chat-app/deploy/deploy-webapp.sh --subscription ${{secrets.AZURE_SUBSCRIPTION_ID}} --resource-group ${{vars.CC_DEPLOYMENT_GROUP_NAME}} --deployment-name ${{vars.CC_DEPLOYMENT_NAME}} --application-id ${{vars.APPLICATION_CLIENT_ID}}
+          samples/apps/copilot-chat-app/deploy/deploy-webapp.sh --subscription ${{secrets.AZURE_SUBSCRIPTION_ID}} --resource-group ${{vars.CC_DEPLOYMENT_GROUP_NAME}} --deployment-name ${{inputs.DEPLOYMENT_NAME}} --application-id ${{vars.APPLICATION_CLIENT_ID}}

@@ -31,6 +31,7 @@ jobs:
     uses: ./.github/workflows/copilot-deploy-backend.yml
     with:
       ARTIFACT_NAME: ${{needs.build.outputs.artifact}}
+      DEPLOYMENT_NAME: ${{needs.deploy-infra.outputs.deployment-id}}
       ENVIRONMENT: int
     secrets:
       AZURE_CLIENT_ID: ${{secrets.AZURE_CLIENT_ID}}
@@ -41,6 +42,7 @@ jobs:
     needs: [deploy-infra]
     uses: ./.github/workflows/copilot-deploy-frontend.yml
     with:
+      DEPLOYMENT_NAME: ${{needs.deploy-infra.outputs.deployment-id}}
       ENVIRONMENT: int
     secrets:
       AZURE_CLIENT_ID: ${{secrets.AZURE_CLIENT_ID}}

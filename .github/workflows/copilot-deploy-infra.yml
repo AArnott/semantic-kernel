@@ -13,6 +13,10 @@ on:
         required: true
       AZURE_SUBSCRIPTION_ID:
         required: true
+    outputs:
+      deployment-id:
+        description: "The Id of the current deployment."
+        value: ${{jobs.deploy.outputs.deployment-id}}
 
 jobs:
   deploy:
@@ -25,9 +29,15 @@ jobs:
       matrix:
         include:
           - { dotnet: "6.0", configuration: Release, os: ubuntu-latest }
+    outputs:
+      deployment-id: ${{steps.deployment-id.outputs.deployment_name}}
 
     runs-on: ${{ matrix.os }}
     steps:
+      - name: Generate Deployment Id
+        id: deployment-id
+        run: echo "deployment_name=${{ vars.CC_DEPLOYMENT_NAME }}-$(date +'%Y-%m-%dT%H:%M:%S')" >> $GITHUB_OUTPUT
+
       - uses: actions/checkout@v3
         with:
           clean: true
@@ -46,4 +56,4 @@ jobs:
           azcliversion: 2.30.0
           inlineScript: |
             AI_SERVICE_KEY=$(az cognitiveservices account keys list --name ${{vars.AZUREOPENAI__NAME}} --resource-group ${{vars.AZUREOPENAI_DEPLOYMENT_GROUP_NAME}} | jq -r '.key1')
-            samples/apps/copilot-chat-app/deploy/deploy-azure.sh --subscription ${{secrets.AZURE_SUBSCRIPTION_ID}} --resource-group ${{vars.CC_DEPLOYMENT_GROUP_NAME}} --deployment-name ${{vars.CC_DEPLOYMENT_NAME}} --region ${{vars.CC_DEPLOYMENT_REGION}} --ai-service AzureOpenAI --ai-endpoint ${{vars.AZUREOPENAI_ENDPOINT}} --ai-service-key $AI_SERVICE_KEY --app-service-sku ${{vars.WEBAPP_API_SKU}} --debug-deployment
+            samples/apps/copilot-chat-app/deploy/deploy-azure.sh --subscription ${{secrets.AZURE_SUBSCRIPTION_ID}} --web-api-key ${{secrets.WEB_API_KEY}} --resource-group ${{vars.CC_DEPLOYMENT_GROUP_NAME}} --deployment-name ${{steps.deployment-id.outputs.deployment_name}} --region ${{vars.CC_DEPLOYMENT_REGION}} --ai-service AzureOpenAI --ai-endpoint ${{vars.AZUREOPENAI_ENDPOINT}} --ai-service-key $AI_SERVICE_KEY --app-service-sku ${{vars.WEBAPP_API_SKU}} --debug-deployment
