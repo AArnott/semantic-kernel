@@ -9,7 +9,7 @@ Bicep template for deploying CopilotChat Azure resources.
 param name string = 'copichat'
 
 @description('SKU for the Azure App Service plan')
-@allowed(['B1', 'S1', 'S2', 'S3', 'P1V3', 'P2V3', 'I1V2', 'I2V2' ])
+@allowed([ 'B1', 'S1', 'S2', 'S3', 'P1V3', 'P2V3', 'I1V2', 'I2V2' ])
 param webAppServiceSku string = 'B1'
 
 @description('Location of package to deploy as the web service')
@@ -65,13 +65,12 @@ param webappLocation string = 'westus2'
 var rgIdHash = uniqueString(resourceGroup().id)
 
 @description('Deployment name unique to resource group')
-var uniqueName = '${name}-${rgIdHash}'
+var uniqueName = uniqueString(name, rgIdHash)
 
 @description('Name of the Azure Storage file share to create')
 var storageFileShareName = 'aciqdrantshare'
 
-
-resource openAI 'Microsoft.CognitiveServices/accounts@2022-12-01' = if(deployNewAzureOpenAI) {
+resource openAI 'Microsoft.CognitiveServices/accounts@2022-12-01' = if (deployNewAzureOpenAI) {
   name: 'ai-${uniqueName}'
   location: location
   kind: 'OpenAI'
@@ -83,7 +82,7 @@ resource openAI 'Microsoft.CognitiveServices/accounts@2022-12-01' = if(deployNew
   }
 }
 
-resource openAI_completionModel 'Microsoft.CognitiveServices/accounts/deployments@2022-12-01' = if(deployNewAzureOpenAI) {
+resource openAI_completionModel 'Microsoft.CognitiveServices/accounts/deployments@2022-12-01' = if (deployNewAzureOpenAI) {
   parent: openAI
   name: completionModel
   properties: {
@@ -97,7 +96,7 @@ resource openAI_completionModel 'Microsoft.CognitiveServices/accounts/deployment
   }
 }
 
-resource openAI_embeddingModel 'Microsoft.CognitiveServices/accounts/deployments@2022-12-01' = if(deployNewAzureOpenAI) {
+resource openAI_embeddingModel 'Microsoft.CognitiveServices/accounts/deployments@2022-12-01' = if (deployNewAzureOpenAI) {
   parent: openAI
   name: embeddingModel
   properties: {
@@ -109,7 +108,7 @@ resource openAI_embeddingModel 'Microsoft.CognitiveServices/accounts/deployments
       scaleType: 'Standard'
     }
   }
-  dependsOn: [             // This "dependency" is to create models sequentially because the resource
+  dependsOn: [// This "dependency" is to create models sequentially because the resource
     openAI_completionModel // provider does not support parallel creation of models properly.
   ]
 }
@@ -524,9 +523,9 @@ resource cosmosAccount 'Microsoft.DocumentDB/databaseAccounts@2023-04-15' = if (
   properties: {
     consistencyPolicy: { defaultConsistencyLevel: 'Session' }
     locations: [ {
-      locationName: location
-      failoverPriority: 0
-      isZoneRedundant: false
+        locationName: location
+        failoverPriority: 0
+        isZoneRedundant: false
       }
     ]
     databaseAccountOfferType: 'Standard'

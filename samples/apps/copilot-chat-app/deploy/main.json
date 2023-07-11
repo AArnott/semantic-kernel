@@ -4,8 +4,8 @@
   "metadata": {
     "_generator": {
       "name": "bicep",
-      "version": "0.17.1.54307",
-      "templateHash": "14923066769528474387"
+      "version": "0.18.4.5664",
+      "templateHash": "11131020059261764737"
     }
   },
   "parameters": {
@@ -138,7 +138,7 @@
   },
   "variables": {
     "rgIdHash": "[uniqueString(resourceGroup().id)]",
-    "uniqueName": "[format('{0}-{1}', parameters('name'), variables('rgIdHash'))]",
+    "uniqueName": "[uniqueString(parameters('name'), variables('rgIdHash'))]",
     "storageFileShareName": "aciqdrantshare"
   },
   "resources": [
