@@ -44,7 +44,6 @@ while [[ $# -gt 0 ]]; do
         -nr|--no-redirect)
         NO_REDIRECT=true
         shift
-        shift
         ;;
         *)
         echo "Unknown option $1"
