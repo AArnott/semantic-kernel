@@ -39,8 +39,12 @@ jobs:
 
       - name: Install Azure CLI
         run: |
-          sudo apt-get install curl -y
+          sudo apt update && sudo apt-get install curl -y
           curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+
+      - name: Install Keyring
+        run: |
+          sudo apt-get install gnome-keyring -y
 
       - name: "Install SWA CLI"
         run: npm install -g @azure/static-web-apps-cli
