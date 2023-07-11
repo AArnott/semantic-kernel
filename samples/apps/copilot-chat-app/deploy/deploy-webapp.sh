@@ -11,9 +11,10 @@ usage() {
     echo ""
     echo "Arguments:"
     echo "  -s, --subscription SUBSCRIPTION        Subscription to which to make the deployment (mandatory)"
-    echo "  -rg, --resource-group RESOURCE_GROUP    Resource group name from a 'deploy-azure.sh' deployment (mandatory)"
+    echo "  -rg, --resource-group RESOURCE_GROUP   Resource group name from a 'deploy-azure.sh' deployment (mandatory)"
     echo "  -d, --deployment-name DEPLOYMENT_NAME  Name of the deployment from a 'deploy-azure.sh' deployment (mandatory)"
-    echo "  -a, --application-id                   Client application ID (mandatory)"
+    echo "  -a, --application-id APPLICATION_ID    Client application ID (mandatory)"
+    echo "  -nr, --no-redirect                     Do not attempt to register redirect URIs with the client application"
 }
 
 # Parse arguments
@@ -37,6 +38,11 @@ while [[ $# -gt 0 ]]; do
         ;;
         -a|--application-id)
         APPLICATION_ID="$2"
+        shift
+        shift
+        ;;
+        -nr|--no-redirect)
+        NO_REDIRECT=true
         shift
         shift
         ;;
@@ -127,21 +133,23 @@ fi
 echo "Ensuring '$ORIGIN' is included in AAD app registration's redirect URIs..."
 eval OBJECT_ID=$(az ad app show --id $APPLICATION_ID | jq -r '.id')
 
-REDIRECT_URIS=$(az rest --method GET --uri "https://graph.microsoft.com/v1.0/applications/$OBJECT_ID" --headers 'Content-Type=application/json' | jq -r '.spa.redirectUris')
-if [[ ! "$REDIRECT_URIS" =~ "$ORIGIN" ]]; then
-    BODY="{spa:{redirectUris:['"
-    eval BODY+=$(echo $REDIRECT_URIS | jq $'join("\',\'")')
-    BODY+="','$ORIGIN']}}"
+if [ "$NO_REDIRECT" != true ]; then
+    REDIRECT_URIS=$(az rest --method GET --uri "https://graph.microsoft.com/v1.0/applications/$OBJECT_ID" --headers 'Content-Type=application/json' | jq -r '.spa.redirectUris')
+    if [[ ! "$REDIRECT_URIS" =~ "$ORIGIN" ]]; then
+        BODY="{spa:{redirectUris:['"
+        eval BODY+=$(echo $REDIRECT_URIS | jq $'join("\',\'")')
+        BODY+="','$ORIGIN']}}"
 
-    az rest \
-    --method PATCH \
-    --uri "https://graph.microsoft.com/v1.0/applications/$OBJECT_ID" \
-    --headers 'Content-Type=application/json' \
-    --body $BODY
-fi
-if [ $? -ne 0 ]; then
-    echo "Failed to update app registration"
-    exit 1
+        az rest \
+        --method PATCH \
+        --uri "https://graph.microsoft.com/v1.0/applications/$OBJECT_ID" \
+        --headers 'Content-Type=application/json' \
+        --body $BODY
+    fi
+    if [ $? -ne 0 ]; then
+        echo "Failed to update app registration"
+        exit 1
+    fi
 fi
 
 popd
