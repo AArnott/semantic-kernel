@@ -62,7 +62,7 @@ jobs:
         with:
           azcliversion: 2.30.0
           inlineScript: |
-            webappName=$(az deployment group show --name cochat-int-scus-002 --resource-group rg-cochat-int-test --output json | jq -r '.properties.outputs.webappName.value')
+            webappName=$(az deployment group show --name ${{inputs.DEPLOYMENT_NAME}} --resource-group ${{vars.CC_DEPLOYMENT_GROUP_NAME}} --output json | jq -r '.properties.outputs.webappName.value')
             swaToken=$(az staticwebapp secrets list --name "$webappName" --resource-group ${{vars.CC_DEPLOYMENT_GROUP_NAME}} --query "properties.apiKey" --output json | jq -r)
             echo "::add-mask::$swaToken"
             echo "SWA_CLI_DEPLOYMENT_TOKEN=$swaToken" >> $GITHUB_ENV
