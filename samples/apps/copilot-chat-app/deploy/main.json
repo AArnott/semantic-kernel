@@ -5,17 +5,10 @@
     "_generator": {
       "name": "bicep",
       "version": "0.18.4.5664",
-      "templateHash": "11131020059261764737"
+      "templateHash": "5837550174188414598"
     }
   },
   "parameters": {
-    "name": {
-      "type": "string",
-      "defaultValue": "copichat",
-      "metadata": {
-        "description": "Name for the deployment consisting of alphanumeric characters or dashes ('-')"
-      }
-    },
     "webAppServiceSku": {
       "type": "string",
       "defaultValue": "B1",
@@ -137,8 +130,7 @@
     }
   },
   "variables": {
-    "rgIdHash": "[uniqueString(resourceGroup().id)]",
-    "uniqueName": "[uniqueString(parameters('name'), variables('rgIdHash'))]",
+    "uniqueName": "[uniqueString(resourceGroup().id, parameters('location'))]",
     "storageFileShareName": "aciqdrantshare"
   },
   "resources": [
@@ -146,18 +138,18 @@
       "condition": "[parameters('deployQdrant')]",
       "type": "Microsoft.Storage/storageAccounts/fileServices/shares",
       "apiVersion": "2022-09-01",
-      "name": "[format('{0}/{1}/{2}', format('st{0}', variables('rgIdHash')), 'default', variables('storageFileShareName'))]",
+      "name": "[format('{0}/{1}/{2}', format('st{0}', variables('uniqueName')), 'default', variables('storageFileShareName'))]",
       "dependsOn": [
-        "[resourceId('Microsoft.Storage/storageAccounts/fileServices', format('st{0}', variables('rgIdHash')), 'default')]"
+        "[resourceId('Microsoft.Storage/storageAccounts/fileServices', format('st{0}', variables('uniqueName')), 'default')]"
       ]
     },
     {
       "condition": "[parameters('deployQdrant')]",
       "type": "Microsoft.Storage/storageAccounts/fileServices",
       "apiVersion": "2022-09-01",
-      "name": "[format('{0}/{1}', format('st{0}', variables('rgIdHash')), 'default')]",
+      "name": "[format('{0}/{1}', format('st{0}', variables('uniqueName')), 'default')]",
       "dependsOn": [
-        "[resourceId('Microsoft.Storage/storageAccounts', format('st{0}', variables('rgIdHash')))]"
+        "[resourceId('Microsoft.Storage/storageAccounts', format('st{0}', variables('uniqueName')))]"
       ]
     },
     {
@@ -450,7 +442,7 @@
       "condition": "[parameters('deployQdrant')]",
       "type": "Microsoft.Storage/storageAccounts",
       "apiVersion": "2022-09-01",
-      "name": "[format('st{0}', variables('rgIdHash'))]",
+      "name": "[format('st{0}', variables('uniqueName'))]",
       "location": "[parameters('location')]",
       "kind": "StorageV2",
       "sku": {
@@ -510,17 +502,17 @@
           "azureStorageAccounts": {
             "aciqdrantshare": {
               "type": "AzureFiles",
-              "accountName": "[if(parameters('deployQdrant'), format('st{0}', variables('rgIdHash')), 'notdeployed')]",
+              "accountName": "[if(parameters('deployQdrant'), format('st{0}', variables('uniqueName')), 'notdeployed')]",
               "shareName": "[variables('storageFileShareName')]",
               "mountPath": "/qdrant/storage",
-              "accessKey": "[if(parameters('deployQdrant'), listKeys(resourceId('Microsoft.Storage/storageAccounts', format('st{0}', variables('rgIdHash'))), '2022-09-01').keys[0].value, '')]"
+              "accessKey": "[if(parameters('deployQdrant'), listKeys(resourceId('Microsoft.Storage/storageAccounts', format('st{0}', variables('uniqueName'))), '2022-09-01').keys[0].value, '')]"
             }
           }
         }
       },
       "dependsOn": [
         "[resourceId('Microsoft.Web/serverfarms', format('asp-{0}-qdrant', variables('uniqueName')))]",
-        "[resourceId('Microsoft.Storage/storageAccounts', format('st{0}', variables('rgIdHash')))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', format('st{0}', variables('uniqueName')))]",
         "[resourceId('Microsoft.Network/virtualNetworks', format('vnet-{0}', variables('uniqueName')))]"
       ]
     },

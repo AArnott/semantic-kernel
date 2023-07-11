@@ -5,9 +5,6 @@ Licensed under the MIT license. See LICENSE file in the project root for full li
 Bicep template for deploying CopilotChat Azure resources.
 */
 
-@description('Name for the deployment consisting of alphanumeric characters or dashes (\'-\')')
-param name string = 'copichat'
-
 @description('SKU for the Azure App Service plan')
 @allowed([ 'B1', 'S1', 'S2', 'S3', 'P1V3', 'P2V3', 'I1V2', 'I2V2' ])
 param webAppServiceSku string = 'B1'
@@ -61,11 +58,8 @@ param location string = resourceGroup().location
 @description('Region for the webapp frontend')
 param webappLocation string = 'westus2'
 
-@description('Hash of the resource group ID')
-var rgIdHash = uniqueString(resourceGroup().id)
-
 @description('Deployment name unique to resource group')
-var uniqueName = uniqueString(name, rgIdHash)
+var uniqueName = uniqueString(resourceGroup().id, location)
 
 @description('Name of the Azure Storage file share to create')
 var storageFileShareName = 'aciqdrantshare'
@@ -328,7 +322,7 @@ resource logAnalyticsWorkspace 'Microsoft.OperationalInsights/workspaces@2022-10
 }
 
 resource storage 'Microsoft.Storage/storageAccounts@2022-09-01' = if (deployQdrant) {
-  name: 'st${rgIdHash}' // Not using full unique name to avoid hitting 24 char limit
+  name: 'st${uniqueName}' // Not using full unique name to avoid hitting 24 char limit
   location: location
   kind: 'StorageV2'
   sku: {

@@ -165,7 +165,6 @@ az account set -s "$SUBSCRIPTION"
 # Create JSON config
 JSON_CONFIG=$(cat << EOF
 {
-    "name": { "value": "$DEPLOYMENT_NAME" },
     "webApiKey": { "value" : "$WEB_API_KEY" },
     "webAppServiceSku": { "value": "$WEB_APP_SVC_SKU" },
     "aiService": { "value": "$AI_SERVICE_TYPE" },
