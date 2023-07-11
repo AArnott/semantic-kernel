@@ -4,8 +4,8 @@
   "metadata": {
     "_generator": {
       "name": "bicep",
-      "version": "0.18.4.5664",
-      "templateHash": "5837550174188414598"
+      "version": "0.16.2.56959",
+      "templateHash": "18037485528098010448"
     }
   },
   "parameters": {
@@ -303,6 +303,10 @@
           {
             "name": "ChatStore:Cosmos:ChatMemorySourcesContainer",
             "value": "chatmemorysources"
+          },
+          {
+            "name": "ChatStore:Cosmos:ChatParticipantsContainer",
+            "value": "chatparticipants"
           },
           {
             "name": "ChatStore:Cosmos:ConnectionString",
