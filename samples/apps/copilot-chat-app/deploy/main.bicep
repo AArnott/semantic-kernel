@@ -114,11 +114,15 @@ resource appServicePlan 'Microsoft.Web/serverfarms@2022-03-01' = {
   sku: {
     name: webAppServiceSku
   }
+  properties: {
+    reserved: true
+  }
 }
 
 resource appServiceWeb 'Microsoft.Web/sites@2022-09-01' = {
   name: 'app-${uniqueName}-webapi'
   location: location
+  kind: 'app,linux'
   tags: {
     skweb: '1'
   }
