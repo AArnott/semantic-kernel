@@ -4,6 +4,7 @@ using System;
 using System.Diagnostics;
 using System.Threading.Tasks;
 using Microsoft.SemanticKernel;
+using Microsoft.SemanticKernel.Diagnostics;
 using Microsoft.SemanticKernel.Memory;
 using Microsoft.SemanticKernel.Planning;
 using Microsoft.SemanticKernel.Planning.Sequential;
@@ -17,7 +18,7 @@ internal static class Example12_SequentialPlanner
     public static async Task RunAsync()
     {
         await PoetrySamplesAsync();
-        await EmailSamplesAsync();
+        await EmailSamplesWithRecallAsync();
         await BookSamplesAsync();
         await MemorySampleAsync();
         await PlanNotPossibleSampleAsync();
@@ -36,7 +37,7 @@ internal static class Example12_SequentialPlanner
         {
             await planner.CreatePlanAsync("Write a poem about John Doe, then translate it into Italian.");
         }
-        catch (PlanningException e)
+        catch (SKException e)
         {
             Console.WriteLine(e.Message);
             // Create plan error: Not possible to create plan for goal with available functions.
@@ -68,11 +69,11 @@ internal static class Example12_SequentialPlanner
     {
         Console.WriteLine("======== Sequential Planner - Create and Execute Poetry Plan ========");
         var kernel = new KernelBuilder()
-            .WithLogger(ConsoleLogger.Log)
-            .WithAzureTextCompletionService(
-                Env.Var("AZURE_OPENAI_DEPLOYMENT_NAME"),
-                Env.Var("AZURE_OPENAI_ENDPOINT"),
-                Env.Var("AZURE_OPENAI_KEY"))
+            .WithLoggerFactory(ConsoleLogger.LoggerFactory)
+            .WithAzureChatCompletionService(
+                TestConfiguration.AzureOpenAI.ChatDeploymentName,
+                TestConfiguration.AzureOpenAI.Endpoint,
+                TestConfiguration.AzureOpenAI.ApiKey)
             .Build();
 
         string folder = RepoFiles.SampleSkillsPath();
@@ -92,7 +93,7 @@ internal static class Example12_SequentialPlanner
         // - WriterSkill.Translate language='Italian' INPUT='' =>
 
         Console.WriteLine("Original plan:");
-        Console.WriteLine(plan.ToPlanString());
+        Console.WriteLine(plan.ToPlanWithGoalString());
 
         var result = await kernel.RunAsync(plan);
 
@@ -100,7 +101,7 @@ internal static class Example12_SequentialPlanner
         Console.WriteLine(result.Result);
     }
 
-    private static async Task EmailSamplesAsync()
+    private static async Task EmailSamplesWithRecallAsync()
     {
         Console.WriteLine("======== Sequential Planner - Create and Execute Email Plan ========");
         var kernel = InitializeKernelAndPlanner(out var planner, 512);
@@ -124,7 +125,10 @@ internal static class Example12_SequentialPlanner
         // - email.SendEmail INPUT='$TRANSLATED_SUMMARY' email_address='$EMAIL_ADDRESS' =>
 
         Console.WriteLine("Original plan:");
-        Console.WriteLine(plan.ToPlanString());
+        Console.WriteLine(plan.ToPlanWithGoalString());
+
+        // Serialize plan before execution for saving to memory on success.
+        var originalPlan = plan.ToJson();
 
         var input =
             "Once upon a time, in a faraway kingdom, there lived a kind and just king named Arjun. " +
@@ -139,6 +143,51 @@ internal static class Example12_SequentialPlanner
             "They ruled the kingdom together, ruling with fairness and compassion, just as Arjun had done before. They lived " +
             "happily ever after, with the people of the kingdom remembering Mira as the brave young woman who saved them from the dragon.";
         await ExecutePlanAsync(kernel, plan, input, 5);
+
+        Console.WriteLine("======== Sequential Planner - Find and Execute Saved Plan ========");
+
+        // Save the plan for future use
+        var semanticMemory = GetMemory();
+        await semanticMemory.SaveInformationAsync(
+            "plans",
+            id: Guid.NewGuid().ToString(),
+            text: plan.Description, // This is the goal used to create the plan
+            description: originalPlan);
+
+        var goal = "Write summary in french and e-mail John Doe";
+
+        Console.WriteLine($"Goal: {goal}");
+        Console.WriteLine("Searching for saved plan...");
+
+        Plan? restoredPlan = null;
+        var memories = semanticMemory.SearchAsync("plans", goal, limit: 1, minRelevanceScore: 0.5);
+        await foreach (MemoryQueryResult memory in memories)
+        {
+            Console.WriteLine($"Restored plan (relevance={memory.Relevance}):");
+
+            // Deseriliaze the plan from the description
+            restoredPlan = Plan.FromJson(memory.Metadata.Description, kernel.CreateNewContext());
+
+            Console.WriteLine(restoredPlan.ToPlanWithGoalString());
+            Console.WriteLine();
+
+            break;
+        }
+
+        if (restoredPlan is not null)
+        {
+            var newInput =
+            "Far in the future, on a planet lightyears away, 15 year old Remy lives a normal life. He goes to school, " +
+            "hangs out with his friends, and tries to avoid trouble. But when he stumbles across a secret that threatens to destroy " +
+            "everything he knows, he's forced to go on the run. With the help of a mysterious girl named Eve, he must evade the ruthless " +
+            "agents of the Galactic Federation, and uncover the truth about his past. But the more he learns, the more he realizes that " +
+            "he's not just an ordinary boy.";
+
+            var result = await kernel.RunAsync(newInput, restoredPlan);
+
+            Console.WriteLine("Result:");
+            Console.WriteLine(result.Result);
+        }
     }
 
     private static async Task BookSamplesAsync()
@@ -166,7 +215,7 @@ internal static class Example12_SequentialPlanner
         // - WriterSkill.NovelChapter chapterIndex='3' previousChapter='$CHAPTER_2_SYNOPSIS' INPUT='$CHAPTER_3_SYNOPSIS' theme='Children's mystery' => RESULT__CHAPTER_3
 
         Console.WriteLine("Original plan:");
-        Console.WriteLine(originalPlan.ToPlanString());
+        Console.WriteLine(originalPlan.ToPlanWithGoalString());
 
         Stopwatch sw = new();
         sw.Start();
@@ -177,18 +226,7 @@ internal static class Example12_SequentialPlanner
     {
         Console.WriteLine("======== Sequential Planner - Create and Execute Plan using Memory ========");
 
-        var kernel = new KernelBuilder()
-            .WithLogger(ConsoleLogger.Log)
-            .WithAzureChatCompletionService(
-                Env.Var("AZURE_OPENAI_CHAT_DEPLOYMENT_NAME"),
-                Env.Var("AZURE_OPENAI_CHAT_ENDPOINT"),
-                Env.Var("AZURE_OPENAI_CHAT_KEY"))
-            .WithAzureTextEmbeddingGenerationService(
-                Env.Var("AZURE_OPENAI_EMBEDDINGS_DEPLOYMENT_NAME"),
-                Env.Var("AZURE_OPENAI_EMBEDDINGS_ENDPOINT"),
-                Env.Var("AZURE_OPENAI_EMBEDDINGS_KEY"))
-            .WithMemoryStorage(new VolatileMemoryStore())
-            .Build();
+        var kernel = InitializeKernelWithMemory();
 
         string folder = RepoFiles.SampleSkillsPath();
         kernel.ImportSemanticSkillFromDirectory(folder,
@@ -210,27 +248,63 @@ internal static class Example12_SequentialPlanner
 
         var goal = "Create a book with 3 chapters about a group of kids in a club called 'The Thinking Caps.'";
 
-        var planner = new SequentialPlanner(kernel, new SequentialPlannerConfig { RelevancyThreshold = 0.5 });
+        // IMPORTANT: To use memory and embeddings to find relevant skills in the planner, set the 'Memory' property on the planner config.
+        var planner = new SequentialPlanner(kernel, new SequentialPlannerConfig { RelevancyThreshold = 0.5, Memory = kernel.Memory });
 
         var plan = await planner.CreatePlanAsync(goal);
 
         Console.WriteLine("Original plan:");
-        Console.WriteLine(plan.ToPlanString());
+        Console.WriteLine(plan.ToPlanWithGoalString());
     }
 
     private static IKernel InitializeKernelAndPlanner(out SequentialPlanner planner, int maxTokens = 1024)
     {
         var kernel = new KernelBuilder()
-            .WithLogger(ConsoleLogger.Log)
+            .WithLoggerFactory(ConsoleLogger.LoggerFactory)
             .WithAzureChatCompletionService(
-                Env.Var("AZURE_OPENAI_CHAT_DEPLOYMENT_NAME"),
-                Env.Var("AZURE_OPENAI_CHAT_ENDPOINT"),
-                Env.Var("AZURE_OPENAI_CHAT_KEY"))
+                TestConfiguration.AzureOpenAI.ChatDeploymentName,
+                TestConfiguration.AzureOpenAI.Endpoint,
+                TestConfiguration.AzureOpenAI.ApiKey)
             .Build();
 
         planner = new SequentialPlanner(kernel, new SequentialPlannerConfig { MaxTokens = maxTokens });
 
         return kernel;
+    }
+
+    private static IKernel InitializeKernelWithMemory()
+    {
+        // IMPORTANT: Register an embedding generation service and a memory store. The Planner will
+        // use these to generate and store embeddings for the function descriptions.
+        var kernel = new KernelBuilder()
+            .WithLoggerFactory(ConsoleLogger.LoggerFactory)
+            .WithAzureChatCompletionService(
+                TestConfiguration.AzureOpenAI.ChatDeploymentName,
+                TestConfiguration.AzureOpenAI.Endpoint,
+                TestConfiguration.AzureOpenAI.ApiKey)
+            .WithAzureTextEmbeddingGenerationService(
+                TestConfiguration.AzureOpenAIEmbeddings.DeploymentName,
+                TestConfiguration.AzureOpenAIEmbeddings.Endpoint,
+                TestConfiguration.AzureOpenAIEmbeddings.ApiKey)
+            .WithMemoryStorage(new VolatileMemoryStore())
+            .Build();
+
+        return kernel;
+    }
+
+    private static ISemanticTextMemory GetMemory(IKernel? kernel = null)
+    {
+        if (kernel is not null)
+        {
+            return kernel.Memory;
+        }
+        var memoryStorage = new VolatileMemoryStore();
+        var textEmbeddingGenerator = new Microsoft.SemanticKernel.Connectors.AI.OpenAI.TextEmbedding.AzureTextEmbeddingGeneration(
+            modelId: TestConfiguration.AzureOpenAIEmbeddings.DeploymentName,
+            endpoint: TestConfiguration.AzureOpenAIEmbeddings.Endpoint,
+            apiKey: TestConfiguration.AzureOpenAIEmbeddings.ApiKey);
+        var memory = new SemanticTextMemory(memoryStorage, textEmbeddingGenerator);
+        return memory;
     }
 
     private static async Task<Plan> ExecutePlanAsync(
@@ -269,7 +343,7 @@ internal static class Example12_SequentialPlanner
                 Console.WriteLine(plan.State.ToString());
             }
         }
-        catch (KernelException e)
+        catch (SKException e)
         {
             Console.WriteLine("Step - Execution failed:");
             Console.WriteLine(e.Message);

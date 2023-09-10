@@ -52,19 +52,19 @@ public sealed class DocumentSkill
 
     private readonly IDocumentConnector _documentConnector;
     private readonly IFileSystemConnector _fileSystemConnector;
-    private readonly ILogger<DocumentSkill> _logger;
+    private readonly ILogger _logger;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="DocumentSkill"/> class.
     /// </summary>
     /// <param name="documentConnector">Document connector</param>
     /// <param name="fileSystemConnector">File system connector</param>
-    /// <param name="logger">Optional logger</param>
-    public DocumentSkill(IDocumentConnector documentConnector, IFileSystemConnector fileSystemConnector, ILogger<DocumentSkill>? logger = null)
+    /// <param name="loggerFactory">The <see cref="ILoggerFactory"/> to use for logging. If null, no logging will be performed.</param>
+    public DocumentSkill(IDocumentConnector documentConnector, IFileSystemConnector fileSystemConnector, ILoggerFactory? loggerFactory = null)
     {
         this._documentConnector = documentConnector ?? throw new ArgumentNullException(nameof(documentConnector));
         this._fileSystemConnector = fileSystemConnector ?? throw new ArgumentNullException(nameof(fileSystemConnector));
-        this._logger = logger ?? new NullLogger<DocumentSkill>();
+        this._logger = loggerFactory is not null ? loggerFactory.CreateLogger(typeof(DocumentSkill)) : NullLogger.Instance;
     }
 
     /// <summary>
@@ -75,7 +75,7 @@ public sealed class DocumentSkill
         [Description("Path to the file to read")] string filePath,
         CancellationToken cancellationToken = default)
     {
-        this._logger.LogInformation("Reading text from {0}", filePath);
+        this._logger.LogDebug("Reading text from {0}", filePath);
         using var stream = await this._fileSystemConnector.GetFileContentStreamAsync(filePath, cancellationToken).ConfigureAwait(false);
         return this._documentConnector.ReadText(stream);
     }
@@ -97,17 +97,17 @@ public sealed class DocumentSkill
         // If the document already exists, open it. If not, create it.
         if (await this._fileSystemConnector.FileExistsAsync(filePath, cancellationToken).ConfigureAwait(false))
         {
-            this._logger.LogInformation("Writing text to file {0}", filePath);
+            this._logger.LogDebug("Writing text to file {0}", filePath);
             using Stream stream = await this._fileSystemConnector.GetWriteableFileStreamAsync(filePath, cancellationToken).ConfigureAwait(false);
             this._documentConnector.AppendText(stream, text);
         }
         else
         {
-            this._logger.LogInformation("File does not exist. Creating file at {0}", filePath);
+            this._logger.LogDebug("File does not exist. Creating file at {0}", filePath);
             using Stream stream = await this._fileSystemConnector.CreateFileAsync(filePath, cancellationToken).ConfigureAwait(false);
             this._documentConnector.Initialize(stream);
 
-            this._logger.LogInformation("Writing text to {0}", filePath);
+            this._logger.LogDebug("Writing text to {0}", filePath);
             this._documentConnector.AppendText(stream, text);
         }
     }

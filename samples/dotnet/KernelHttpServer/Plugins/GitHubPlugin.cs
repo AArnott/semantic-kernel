@@ -35,7 +35,7 @@ public class GitHubPlugin
 
     private readonly ISKFunction _summarizeCodeFunction;
     private readonly IKernel _kernel;
-    private readonly ILogger<GitHubPlugin> _logger;
+    private readonly ILogger _logger;
     private static readonly char[] s_trimChars = new char[] { ' ', '/' };
 
     internal const string SummarizeCodeSnippetDefinition =
@@ -55,10 +55,10 @@ BEGIN SUMMARY:
     /// </summary>
     /// <param name="kernel">Kernel instance</param>
     /// <param name="logger">Optional logger</param>
-    public GitHubPlugin(IKernel kernel, ILogger<GitHubPlugin>? logger = null)
+    public GitHubPlugin(IKernel kernel, ILoggerFactory? loggerFactory = null)
     {
         this._kernel = kernel;
-        this._logger = logger ?? NullLogger<GitHubPlugin>.Instance;
+        this._logger = loggerFactory is not null ? loggerFactory.CreateLogger<GitHubPlugin>() : NullLogger.Instance;
 
         this._summarizeCodeFunction = kernel.CreateSemanticFunction(
             SummarizeCodeSnippetDefinition,
@@ -92,28 +92,29 @@ BEGIN SUMMARY:
 
         try
         {
-            var repositoryUri = Regex.Replace(input.Trim(s_trimChars), "github.com", "api.github.com/repos", RegexOptions.IgnoreCase);
+            var originalUri = input.Trim(s_trimChars);
+            var repositoryUri = Regex.Replace(originalUri, "github.com", "api.github.com/repos", RegexOptions.IgnoreCase);
             var repoBundle = $"{repositoryUri}/zipball/{repositoryBranch}";
 
             this._logger.LogDebug("Downloading {RepoBundle}", repoBundle);
 
             var headers = new Dictionary<string, string>();
+            headers.Add("X-GitHub-Api-Version", "2022-11-28");
+            headers.Add("Accept", "application/vnd.github+json");
+            headers.Add("User-Agent", "msft-semantic-kernel-sample");
             if (!string.IsNullOrEmpty(patToken))
             {
                 this._logger.LogDebug("Access token detected, adding authorization headers");
                 headers.Add("Authorization", $"Bearer {patToken}");
-                headers.Add("X-GitHub-Api-Version", "2022-11-28");
-                headers.Add("Accept", "application/vnd.github+json");
-                headers.Add("User-Agent", "msft-semantic-kernel-sample");
             }
 
             await this.DownloadToFileAsync(repoBundle, headers, filePath, cancellationToken);
 
             ZipFile.ExtractToDirectory(filePath, directoryPath);
 
-            await this.SummarizeCodeDirectoryAsync(directoryPath, searchPattern, repositoryUri, repositoryBranch, cancellationToken);
+            await this.SummarizeCodeDirectoryAsync(directoryPath, searchPattern, originalUri, repositoryBranch, cancellationToken);
 
-            return $"{repositoryUri}-{repositoryBranch}";
+            return $"{originalUri}-{repositoryBranch}";
         }
         finally
         {

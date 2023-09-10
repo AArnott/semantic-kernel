@@ -4,27 +4,17 @@ using System;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.SemanticKernel;
-using Microsoft.SemanticKernel.Orchestration;
+using Microsoft.SemanticKernel.Diagnostics;
 using Microsoft.SemanticKernel.Skills.MsGraph;
 using Microsoft.SemanticKernel.Skills.MsGraph.Models;
 using Moq;
-using SemanticKernel.Skills.UnitTests.XunitHelpers;
 using SemanticKernel.UnitTests;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace SemanticKernel.Skills.UnitTests.MsGraph;
 
-public class CalendarSkillTests : IDisposable
+public class CalendarSkillTests
 {
-    private readonly XunitLogger<SKContext> _logger;
-
-    public CalendarSkillTests(ITestOutputHelper output)
-    {
-        this._logger = new XunitLogger<SKContext>(output);
-    }
-
     [Fact]
     public async Task AddEventAsyncSucceedsAsync()
     {
@@ -201,8 +191,7 @@ public class CalendarSkillTests : IDisposable
 
         // Assert
         Assert.True(context.ErrorOccurred);
-        KernelException e = Assert.IsType<KernelException>(context.LastException);
-        Assert.Equal(KernelException.ErrorCodes.FunctionInvokeError, e.ErrorCode);
+        Assert.IsType<SKException>(context.LastException);
     }
 
     [Fact]
@@ -229,8 +218,7 @@ public class CalendarSkillTests : IDisposable
 
         // Assert
         Assert.True(context.ErrorOccurred);
-        KernelException e = Assert.IsType<KernelException>(context.LastException);
-        Assert.Equal(KernelException.ErrorCodes.FunctionInvokeError, e.ErrorCode);
+        Assert.IsType<SKException>(context.LastException);
     }
 
     [Fact]
@@ -259,20 +247,5 @@ public class CalendarSkillTests : IDisposable
         Assert.True(context.ErrorOccurred);
         ArgumentException e = Assert.IsType<ArgumentException>(context.LastException);
         Assert.Equal("subject", e.ParamName);
-    }
-
-    protected virtual void Dispose(bool disposing)
-    {
-        if (disposing)
-        {
-            this._logger.Dispose();
-        }
-    }
-
-    public void Dispose()
-    {
-        // Do not change this code. Put cleanup code in 'Dispose(bool disposing)' method
-        this.Dispose(disposing: true);
-        GC.SuppressFinalize(this);
     }
 }

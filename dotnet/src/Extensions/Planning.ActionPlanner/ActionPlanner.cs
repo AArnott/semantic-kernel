@@ -7,6 +7,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -29,10 +30,15 @@ namespace Microsoft.SemanticKernel.Planning;
 /// The rationale is currently available only in the prompt, we might include it in
 /// the Plan object in future.
 /// </summary>
-public sealed class ActionPlanner
+public sealed class ActionPlanner : IActionPlanner
 {
     private const string StopSequence = "#END-OF-PLAN";
     private const string SkillName = "this";
+
+    /// <summary>
+    /// The regular expression for extracting serialized plan.
+    /// </summary>
+    private static readonly Regex PlanRegex = new("^[^{}]*(((?'Open'{)[^{}]*)+((?'Close-Open'})[^{}]*)+)*(?(Open)(?!))", RegexOptions.Singleline | RegexOptions.Compiled);
 
     // Planner semantic function
     private readonly ISKFunction _plannerFunction;
@@ -48,15 +54,15 @@ public sealed class ActionPlanner
     /// </summary>
     /// <param name="kernel">The semantic kernel instance.</param>
     /// <param name="prompt">Optional prompt override</param>
-    /// <param name="logger">Optional logger</param>
+    /// <param name="loggerFactory">The <see cref="ILoggerFactory"/> to use for logging. If null, no logging will be performed.</param>
     public ActionPlanner(
         IKernel kernel,
         string? prompt = null,
-        ILogger? logger = null)
+        ILoggerFactory? loggerFactory = null)
     {
         Verify.NotNull(kernel);
 
-        this._logger = logger ?? new NullLogger<ActionPlanner>();
+        this._logger = loggerFactory is not null ? loggerFactory.CreateLogger(typeof(ActionPlanner)) : NullLogger.Instance;
 
         string promptTemplate = prompt ?? EmbeddedResource.Read("skprompt.txt");
 
@@ -72,21 +78,22 @@ public sealed class ActionPlanner
         this._context = kernel.CreateNewContext();
     }
 
-    public async Task<Plan> CreatePlanAsync(string goal)
+    /// <inheritdoc />
+    public async Task<Plan> CreatePlanAsync(string goal, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrEmpty(goal))
         {
-            throw new PlanningException(PlanningException.ErrorCodes.InvalidGoal, "The goal specified is empty");
+            throw new SKException("The goal specified is empty");
         }
 
         this._context.Variables.Update(goal);
 
-        SKContext result = await this._plannerFunction.InvokeAsync(this._context).ConfigureAwait(false);
+        SKContext result = await this._plannerFunction.InvokeAsync(this._context, cancellationToken: cancellationToken).ConfigureAwait(false);
         ActionPlanResponse? planData = this.ParsePlannerResult(result);
 
         if (planData == null)
         {
-            throw new PlanningException(PlanningException.ErrorCodes.InvalidPlan, "The plan deserialized to a null object");
+            throw new SKException("The plan deserialized to a null object");
         }
 
         // Build and return plan
@@ -106,12 +113,15 @@ public sealed class ActionPlanner
             plan = new Plan(goal);
         }
 
-        // Create a plan using the function and the parameters suggested by the planner
-        foreach (KeyValuePair<string, object> p in planData.Plan.Parameters)
+        // Populate plan parameters using the function and the parameters suggested by the planner
+        if (plan.Steps.Count > 0)
         {
-            if (p.Value != null)
+            foreach (KeyValuePair<string, object> p in planData.Plan.Parameters)
             {
-                plan.Parameters[p.Key] = p.Value.ToString();
+                if (p.Value != null)
+                {
+                    plan.Steps[0].Parameters[p.Key] = p.Value.ToString();
+                }
             }
         }
 
@@ -144,6 +154,12 @@ public sealed class ActionPlanner
 
     // TODO: generate string programmatically
     // TODO: use goal to find relevant examples
+    /// <summary>
+    /// Native function that provides a list of good examples of plans to generate.
+    /// </summary>
+    /// <param name="goal">The current goal processed by the planner.</param>
+    /// <param name="context">Function execution context.</param>
+    /// <returns>List of good examples, formatted accordingly to the prompt.</returns>
     [SKFunction, Description("List a few good examples of plans to generate")]
     public string GoodExamples(
         [Description("The current goal processed by the planner")] string goal,
@@ -179,6 +195,12 @@ Goal: create a file called ""something.txt"".
     }
 
     // TODO: generate string programmatically
+    /// <summary>
+    /// Native function that provides a list of edge case examples of plans to handle.
+    /// </summary>
+    /// <param name="goal">The current goal processed by the planner.</param>
+    /// <param name="context">Function execution context.</param>
+    /// <returns>List of edge case examples, formatted accordingly to the prompt.</returns>
     [SKFunction, Description("List a few edge case examples of plans to handle")]
     public string EdgeCaseExamples(
         [Description("The current goal processed by the planner")] string goal,
@@ -221,8 +243,7 @@ Goal: tell me a joke.
     /// <returns>Instance of <see cref="ActionPlanResponse"/> object deserialized from extracted JSON.</returns>
     private ActionPlanResponse? ParsePlannerResult(SKContext plannerResult)
     {
-        Regex planRegex = new("^[^{}]*(((?'Open'{)[^{}]*)+((?'Close-Open'})[^{}]*)+)*(?(Open)(?!))", RegexOptions.Singleline);
-        Match match = planRegex.Match(plannerResult.ToString());
+        Match match = PlanRegex.Match(plannerResult.ToString());
 
         if (match.Success && match.Groups["Close"].Length > 0)
         {
@@ -239,13 +260,12 @@ Goal: tell me a joke.
             }
             catch (Exception e)
             {
-                throw new PlanningException(PlanningException.ErrorCodes.InvalidPlan,
-                    "Plan parsing error, invalid JSON", e);
+                throw new SKException("Plan parsing error, invalid JSON", e);
             }
         }
         else
         {
-            throw new PlanningException(PlanningException.ErrorCodes.InvalidPlan, $"Failed to extract valid json string from planner result: '{plannerResult}'");
+            throw new SKException($"Failed to extract valid json string from planner result: '{plannerResult}'");
         }
     }
 
@@ -275,7 +295,7 @@ Goal: tell me a joke.
                 // Function parameters
                 foreach (var p in func.Parameters)
                 {
-                    var description = string.IsNullOrEmpty(p.Description) ? p.Name : p.Description;
+                    var description = string.IsNullOrEmpty(p.Description) ? p.Name : p.Description!;
                     var defaultValueString = string.IsNullOrEmpty(p.DefaultValue) ? string.Empty : $" (default value: {p.DefaultValue})";
                     list.AppendLine($"Parameter \"{p.Name}\": {AddPeriod(description)} {defaultValueString}");
                 }

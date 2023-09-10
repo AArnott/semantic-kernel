@@ -23,14 +23,14 @@ public sealed class OpenAITextCompletion : OpenAIClientBase, ITextCompletion
     /// <param name="apiKey">OpenAI API Key</param>
     /// <param name="organization">OpenAI Organization Id (usually optional)</param>
     /// <param name="httpClient">Custom <see cref="HttpClient"/> for HTTP requests.</param>
-    /// <param name="logger">Application logger</param>
+    /// <param name="loggerFactory">The <see cref="ILoggerFactory"/> to use for logging. If null, no logging will be performed.</param>
     public OpenAITextCompletion(
         string modelId,
         string apiKey,
         string? organization = null,
         HttpClient? httpClient = null,
-        ILogger? logger = null
-    ) : base(modelId, apiKey, organization, httpClient, logger)
+        ILoggerFactory? loggerFactory = null
+    ) : base(modelId, apiKey, organization, httpClient, loggerFactory)
     {
     }
 
@@ -40,6 +40,7 @@ public sealed class OpenAITextCompletion : OpenAIClientBase, ITextCompletion
         CompleteRequestSettings requestSettings,
         CancellationToken cancellationToken = default)
     {
+        this.LogActionDetails();
         return this.InternalGetTextStreamingResultsAsync(text, requestSettings, cancellationToken);
     }
 
@@ -49,6 +50,7 @@ public sealed class OpenAITextCompletion : OpenAIClientBase, ITextCompletion
         CompleteRequestSettings requestSettings,
         CancellationToken cancellationToken = default)
     {
+        this.LogActionDetails();
         return this.InternalGetTextResultsAsync(text, requestSettings, cancellationToken);
     }
 }

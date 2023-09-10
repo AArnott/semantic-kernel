@@ -64,7 +64,7 @@ public sealed class CalendarSkill
     }
 
     private readonly ICalendarConnector _connector;
-    private readonly ILogger<CalendarSkill> _logger;
+    private readonly ILogger _logger;
     private static readonly JsonSerializerOptions s_options = new()
     {
         WriteIndented = false,
@@ -75,13 +75,13 @@ public sealed class CalendarSkill
     /// Initializes a new instance of the <see cref="CalendarSkill"/> class.
     /// </summary>
     /// <param name="connector">Calendar connector.</param>
-    /// <param name="logger">Logger.</param>
-    public CalendarSkill(ICalendarConnector connector, ILogger<CalendarSkill>? logger = null)
+    /// <param name="loggerFactory">The <see cref="ILoggerFactory"/> to use for logging. If null, no logging will be performed.</param>
+    public CalendarSkill(ICalendarConnector connector, ILoggerFactory? loggerFactory = null)
     {
         Ensure.NotNull(connector, nameof(connector));
 
         this._connector = connector;
-        this._logger = logger ?? new NullLogger<CalendarSkill>();
+        this._logger = loggerFactory is not null ? loggerFactory.CreateLogger(typeof(CalendarSkill)) : NullLogger.Instance;
     }
 
     /// <summary>
@@ -111,7 +111,8 @@ public sealed class CalendarSkill
             Attendees = attendees is not null ? attendees.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries) : Enumerable.Empty<string>(),
         };
 
-        this._logger.LogInformation("Adding calendar event '{0}'", calendarEvent.Subject);
+        // Sensitive data, logging as trace, disabled by default
+        this._logger.LogTrace("Adding calendar event '{0}'", calendarEvent.Subject);
         await this._connector.AddEventAsync(calendarEvent).ConfigureAwait(false);
     }
 
@@ -124,7 +125,7 @@ public sealed class CalendarSkill
         [Description("Optional number of events to skip before retrieving results.")] int? skip = 0,
         CancellationToken cancellationToken = default)
     {
-        this._logger.LogInformation("Getting calendar events with query options top: '{0}', skip:'{1}'.", maxResults, skip);
+        this._logger.LogDebug("Getting calendar events with query options top: '{0}', skip:'{1}'.", maxResults, skip);
 
         const string SelectString = "start,subject,organizer,location";
 

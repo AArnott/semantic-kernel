@@ -2,7 +2,11 @@
 
 namespace Microsoft.SemanticKernel.Services;
 
-public interface INamedServiceProvider<TService>
+/// <summary>
+/// Represents a named service provider that can retrieve services by type and name.
+/// </summary>
+/// <typeparam name="TService">The base type of the services provided by this provider.</typeparam>
+public interface INamedServiceProvider<in TService>
 {
     /// <summary>
     /// Gets the service of the specified type and name, or null if not found.

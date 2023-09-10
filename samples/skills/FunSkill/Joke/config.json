@@ -15,6 +15,11 @@
         "name": "input",
         "description": "Joke subject",
         "defaultValue": ""
+      },
+      {
+        "name": "style",
+        "description": "Give a hint about the desired joke style",
+        "defaultValue": ""
       }
     ]
   }

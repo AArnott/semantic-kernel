@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.AI.TextCompletion;
 using Microsoft.SemanticKernel.Orchestration;
+using Microsoft.SemanticKernel.SemanticFunctions;
 using Microsoft.SemanticKernel.SkillDefinition;
 using Moq;
 using Xunit;
@@ -20,39 +21,10 @@ namespace SemanticKernel.UnitTests;
 public class KernelTests
 {
     [Fact]
-    [System.Obsolete("This method is deprecated and will be removed in one of the next SK SDK versions.")]
-    public void ItProvidesAccessToFunctionsViaSkillCollectionObsolete()
-    {
-        // Arrange
-        var kernel = KernelBuilder.Create();
-        var factory = new Mock<Func<IKernel, ITextCompletion>>();
-        kernel.Config.AddTextCompletionService(factory.Object);
-
-        var nativeSkill = new MySkill();
-        kernel.CreateSemanticFunction(promptTemplate: "Tell me a joke", functionName: "joker", skillName: "jk", description: "Nice fun");
-        kernel.ImportSkill(nativeSkill, "mySk");
-
-        // Act
-        FunctionsView data = kernel.Skills.GetFunctionsView();
-
-        // Assert - 3 functions, var name is not case sensitive
-        Assert.True(data.IsSemantic("jk", "joker"));
-        Assert.True(data.IsSemantic("JK", "JOKER"));
-        Assert.False(data.IsNative("jk", "joker"));
-        Assert.False(data.IsNative("JK", "JOKER"));
-        Assert.True(data.IsNative("mySk", "sayhello"));
-        Assert.True(data.IsNative("MYSK", "SayHello"));
-        Assert.True(data.IsNative("mySk", "ReadSkillCollectionAsync"));
-        Assert.True(data.IsNative("MYSK", "readskillcollectionasync"));
-        Assert.Single(data.SemanticFunctions["Jk"]);
-        Assert.Equal(3, data.NativeFunctions["mySk"].Count);
-    }
-
-    [Fact]
     public void ItProvidesAccessToFunctionsViaSkillCollection()
     {
         // Arrange
-        var factory = new Mock<Func<ILogger, ITextCompletion>>();
+        var factory = new Mock<Func<ILoggerFactory, ITextCompletion>>();
         var kernel = Kernel.Builder
             .WithDefaultAIService<ITextCompletion>(factory.Object)
             .Build();
@@ -81,7 +53,7 @@ public class KernelTests
     public async Task ItProvidesAccessToFunctionsViaSKContextAsync()
     {
         // Arrange
-        var factory = new Mock<Func<(ILogger, KernelConfig), ITextCompletion>>();
+        var factory = new Mock<Func<ILoggerFactory, ITextCompletion>>();
         var kernel = Kernel.Builder
             .WithAIService<ITextCompletion>("x", factory.Object)
             .Build();
@@ -94,12 +66,12 @@ public class KernelTests
         SKContext result = await kernel.RunAsync(skill["ReadSkillCollectionAsync"]);
 
         // Assert - 3 functions, var name is not case sensitive
-        Assert.Equal("Nice fun", result["jk.joker"]);
-        Assert.Equal("Nice fun", result["JK.JOKER"]);
-        Assert.Equal("Just say hello", result["mySk.sayhello"]);
-        Assert.Equal("Just say hello", result["mySk.SayHello"]);
-        Assert.Equal("Export info.", result["mySk.ReadSkillCollectionAsync"]);
-        Assert.Equal("Export info.", result["mysk.readskillcollectionasync"]);
+        Assert.Equal("Nice fun", result.Variables["jk.joker"]);
+        Assert.Equal("Nice fun", result.Variables["JK.JOKER"]);
+        Assert.Equal("Just say hello", result.Variables["mySk.sayhello"]);
+        Assert.Equal("Just say hello", result.Variables["mySk.SayHello"]);
+        Assert.Equal("Export info.", result.Variables["mySk.ReadSkillCollectionAsync"]);
+        Assert.Equal("Export info.", result.Variables["mysk.readskillcollectionasync"]);
     }
 
     [Fact]
@@ -154,6 +126,34 @@ public class KernelTests
         Assert.True(skill.ContainsKey("GETANYVALUE"));
     }
 
+    [Theory]
+    [InlineData(null, "Assistant is a large language model.")]
+    [InlineData("My Chat Prompt", "My Chat Prompt")]
+    public void ItUsesChatSystemPromptWhenProvided(string providedSystemChatPrompt, string expectedSystemChatPrompt)
+    {
+        // Arrange
+        var mockTextCompletion = new Mock<ITextCompletion>();
+        var mockCompletionResult = new Mock<ITextResult>();
+
+        mockTextCompletion.Setup(c => c.GetCompletionsAsync(It.IsAny<string>(), It.IsAny<CompleteRequestSettings>(), It.IsAny<CancellationToken>())).ReturnsAsync(new[] { mockCompletionResult.Object });
+        mockCompletionResult.Setup(cr => cr.GetCompletionAsync(It.IsAny<CancellationToken>())).ReturnsAsync("llmResult");
+
+        var kernel = Kernel.Builder
+            .WithAIService<ITextCompletion>("x", mockTextCompletion.Object)
+            .Build();
+
+        var templateConfig = new PromptTemplateConfig();
+        templateConfig.Completion.ChatSystemPrompt = providedSystemChatPrompt;
+
+        var func = kernel.CreateSemanticFunction("template", templateConfig, "functionName", "skillName");
+
+        // Act
+        kernel.RunAsync(func);
+
+        // Assert
+        mockTextCompletion.Verify(a => a.GetCompletionsAsync("template", It.Is<CompleteRequestSettings>(c => c.ChatSystemPrompt == expectedSystemChatPrompt), It.IsAny<CancellationToken>()), Times.Once());
+    }
+
     [Fact]
     public void ItAllowsToImportSkillsInTheGlobalNamespace()
     {
@@ -179,6 +179,88 @@ public class KernelTests
         kernel.ImportSkill(new MySkill());
         kernel.ImportSkill(new MySkill());
         kernel.ImportSkill(new MySkill());
+    }
+
+    [Fact]
+    public void ItUsesDefaultServiceWhenSpecified()
+    {
+        // Arrange
+        var mockTextCompletion1 = new Mock<ITextCompletion>();
+        var mockTextCompletion2 = new Mock<ITextCompletion>();
+        var mockCompletionResult = new Mock<ITextResult>();
+
+        mockTextCompletion1.Setup(c => c.GetCompletionsAsync(It.IsAny<string>(), It.IsAny<CompleteRequestSettings>(), It.IsAny<CancellationToken>())).ReturnsAsync(new[] { mockCompletionResult.Object });
+        mockTextCompletion2.Setup(c => c.GetCompletionsAsync(It.IsAny<string>(), It.IsAny<CompleteRequestSettings>(), It.IsAny<CancellationToken>())).ReturnsAsync(new[] { mockCompletionResult.Object });
+        mockCompletionResult.Setup(cr => cr.GetCompletionAsync(It.IsAny<CancellationToken>())).ReturnsAsync("llmResult");
+
+        var kernel = Kernel.Builder
+            .WithAIService<ITextCompletion>("service1", mockTextCompletion1.Object, false)
+            .WithAIService<ITextCompletion>("service2", mockTextCompletion2.Object, true)
+            .Build();
+
+        var templateConfig = new PromptTemplateConfig();
+        var func = kernel.CreateSemanticFunction("template", templateConfig, "functionName", "skillName");
+
+        // Act
+        kernel.RunAsync(func);
+
+        // Assert
+        mockTextCompletion1.Verify(a => a.GetCompletionsAsync("template", It.IsAny<CompleteRequestSettings>(), It.IsAny<CancellationToken>()), Times.Never());
+        mockTextCompletion2.Verify(a => a.GetCompletionsAsync("template", It.IsAny<CompleteRequestSettings>(), It.IsAny<CancellationToken>()), Times.Once());
+    }
+
+    [Fact]
+    public void ItUsesServiceIdWhenProvided()
+    {
+        // Arrange
+        var mockTextCompletion1 = new Mock<ITextCompletion>();
+        var mockTextCompletion2 = new Mock<ITextCompletion>();
+        var mockCompletionResult = new Mock<ITextResult>();
+
+        mockTextCompletion1.Setup(c => c.GetCompletionsAsync(It.IsAny<string>(), It.IsAny<CompleteRequestSettings>(), It.IsAny<CancellationToken>())).ReturnsAsync(new[] { mockCompletionResult.Object });
+        mockTextCompletion2.Setup(c => c.GetCompletionsAsync(It.IsAny<string>(), It.IsAny<CompleteRequestSettings>(), It.IsAny<CancellationToken>())).ReturnsAsync(new[] { mockCompletionResult.Object });
+        mockCompletionResult.Setup(cr => cr.GetCompletionAsync(It.IsAny<CancellationToken>())).ReturnsAsync("llmResult");
+
+        var kernel = Kernel.Builder
+            .WithAIService<ITextCompletion>("service1", mockTextCompletion1.Object, false)
+            .WithAIService<ITextCompletion>("service2", mockTextCompletion2.Object, true)
+            .Build();
+
+        var templateConfig = new PromptTemplateConfig();
+        templateConfig.Completion.ServiceId = "service1";
+        var func = kernel.CreateSemanticFunction("template", templateConfig, "functionName", "skillName");
+
+        // Act
+        kernel.RunAsync(func);
+
+        // Assert
+        mockTextCompletion1.Verify(a => a.GetCompletionsAsync("template", It.IsAny<CompleteRequestSettings>(), It.IsAny<CancellationToken>()), Times.Once());
+        mockTextCompletion2.Verify(a => a.GetCompletionsAsync("template", It.IsAny<CompleteRequestSettings>(), It.IsAny<CancellationToken>()), Times.Never());
+    }
+
+    [Fact]
+    public async Task ItFailsIfInvalidServiceIdIsProvidedAsync()
+    {
+        // Arrange
+        var mockTextCompletion1 = new Mock<ITextCompletion>();
+        var mockTextCompletion2 = new Mock<ITextCompletion>();
+
+        var kernel = Kernel.Builder
+            .WithAIService<ITextCompletion>("service1", mockTextCompletion1.Object, false)
+            .WithAIService<ITextCompletion>("service2", mockTextCompletion2.Object, true)
+            .Build();
+
+        var templateConfig = new PromptTemplateConfig();
+        templateConfig.Completion.ServiceId = "service3";
+        var func = kernel.CreateSemanticFunction("template", templateConfig, "functionName", "skillName");
+
+        // Act
+        SKContext result = await kernel.RunAsync(func);
+
+        // Assert
+        Assert.NotNull(result.LastException);
+        Assert.Equal("Service of type Microsoft.SemanticKernel.AI.TextCompletion.ITextCompletion and name service3 not registered.", result.LastException.Message);
+        Assert.True(result.ErrorOccurred);
     }
 
     public class MySkill
@@ -211,7 +293,7 @@ public class KernelTests
             {
                 foreach (FunctionView f in list.Value)
                 {
-                    context[$"{list.Key}.{f.Name}"] = f.Description;
+                    context.Variables[$"{list.Key}.{f.Name}"] = f.Description;
                 }
             }
 
@@ -219,7 +301,7 @@ public class KernelTests
             {
                 foreach (FunctionView f in list.Value)
                 {
-                    context[$"{list.Key}.{f.Name}"] = f.Description;
+                    context.Variables[$"{list.Key}.{f.Name}"] = f.Description;
                 }
             }
 

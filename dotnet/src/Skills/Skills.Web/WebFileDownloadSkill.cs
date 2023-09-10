@@ -16,7 +16,7 @@ namespace Microsoft.SemanticKernel.Skills.Web;
 /// <summary>
 /// Skill to download web files.
 /// </summary>
-public sealed class WebFileDownloadSkill : IDisposable
+public sealed class WebFileDownloadSkill
 {
     /// <summary>
     /// Skill parameter: where to save file.
@@ -29,9 +29,9 @@ public sealed class WebFileDownloadSkill : IDisposable
     /// <summary>
     /// Initializes a new instance of the <see cref="WebFileDownloadSkill"/> class.
     /// </summary>
-    /// <param name="logger">An optional logger to log skill-related information.</param>
-    public WebFileDownloadSkill(ILogger<WebFileDownloadSkill>? logger = null) :
-        this(new HttpClient(NonDisposableHttpClientHandler.Instance, false), logger)
+    /// <param name="loggerFactory">The <see cref="ILoggerFactory"/> to use for logging. If null, no logging will be performed.</param>
+    public WebFileDownloadSkill(ILoggerFactory? loggerFactory = null) :
+        this(new HttpClient(NonDisposableHttpClientHandler.Instance, false), loggerFactory)
     {
     }
 
@@ -39,11 +39,11 @@ public sealed class WebFileDownloadSkill : IDisposable
     /// Initializes a new instance of the <see cref="WebFileDownloadSkill"/> class.
     /// </summary>
     /// <param name="httpClient">The HTTP client to use for making requests.</param>
-    /// <param name="logger">An optional logger to log skill-related information.</param>
-    public WebFileDownloadSkill(HttpClient httpClient, ILogger<WebFileDownloadSkill>? logger = null)
+    /// <param name="loggerFactory">The <see cref="ILoggerFactory"/> to use for logging. If null, no logging will be performed.</param>
+    public WebFileDownloadSkill(HttpClient httpClient, ILoggerFactory? loggerFactory = null)
     {
         this._httpClient = httpClient;
-        this._logger = logger ?? NullLogger<WebFileDownloadSkill>.Instance;
+        this._logger = loggerFactory is not null ? loggerFactory.CreateLogger(typeof(WebFileDownloadSkill)) : NullLogger.Instance;
     }
 
     /// <summary>
@@ -63,21 +63,16 @@ public sealed class WebFileDownloadSkill : IDisposable
         this._logger.LogDebug($"{nameof(this.DownloadToFileAsync)} got called");
 
         this._logger.LogDebug("Sending GET request for {0}", url);
-        using HttpResponseMessage response = await this._httpClient.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
+
+        using HttpRequestMessage request = new(HttpMethod.Get, url);
+
+        using HttpResponseMessage response = await this._httpClient.SendWithSuccessCheckAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+
         this._logger.LogDebug("Response received: {0}", response.StatusCode);
 
-        using Stream webStream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
+        using Stream webStream = await response.Content.ReadAsStreamAndTranslateExceptionAsync().ConfigureAwait(false);
         using FileStream outputFileStream = new(Environment.ExpandEnvironmentVariables(filePath), FileMode.Create);
 
         await webStream.CopyToAsync(outputFileStream, 81920 /*same value used by default*/, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>
-    /// Implementation of IDisposable.
-    /// </summary>
-    [Obsolete("This method is deprecated and will be removed in one of the next SK SDK versions. There is no longer a need to invoke this method, and its call can be safely omitted.")]
-    public void Dispose()
-    {
     }
 }

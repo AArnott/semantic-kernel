@@ -133,6 +133,115 @@ class Kernel:
 
         return function
 
+    def register_native_function(
+        self,
+        skill_name: Optional[str],
+        sk_function: Callable,
+    ) -> SKFunctionBase:
+        if not hasattr(sk_function, "__sk_function__"):
+            raise KernelException(
+                KernelException.ErrorCodes.InvalidFunctionType,
+                "sk_function argument must be decorated with @sk_function",
+            )
+        function_name = sk_function.__sk_function_name__
+
+        if skill_name is None or skill_name == "":
+            skill_name = SkillCollection.GLOBAL_SKILL
+        assert skill_name is not None  # for type checker
+
+        validate_skill_name(skill_name)
+        validate_function_name(function_name)
+
+        function = SKFunction.from_native_method(sk_function, skill_name, self.logger)
+
+        if self.skills.has_function(skill_name, function_name):
+            raise KernelException(
+                KernelException.ErrorCodes.FunctionOverloadNotSupported,
+                "Overloaded functions are not supported, "
+                "please differentiate function names.",
+            )
+
+        function.set_default_skill_collection(self.skills)
+        self._skill_collection.add_native_function(function)
+
+        return function
+
+    async def run_stream_async(
+        self,
+        *functions: Any,
+        input_context: Optional[SKContext] = None,
+        input_vars: Optional[ContextVariables] = None,
+        input_str: Optional[str] = None,
+    ):
+        if len(functions) > 1:
+            pipeline_functions = functions[:-1]
+            stream_function = functions[-1]
+
+            # run pipeline functions
+            context = await self.run_async(
+                pipeline_functions, input_context, input_vars, input_str
+            )
+
+        elif len(functions) == 1:
+            stream_function = functions[0]
+
+            # TODO: Preparing context for function invoke can be refactored as code below are same as run_async
+            # if the user passed in a context, prioritize it, but merge with any other inputs
+            if input_context is not None:
+                context = input_context
+                if input_vars is not None:
+                    context.variables = input_vars.merge_or_overwrite(
+                        new_vars=context.variables, overwrite=False
+                    )
+
+                if input_str is not None:
+                    context.variables = ContextVariables(input_str).merge_or_overwrite(
+                        new_vars=context.variables, overwrite=False
+                    )
+
+            # if the user did not pass in a context, prioritize an input string,
+            # and merge that with input context variables
+            else:
+                if input_str is not None and input_vars is None:
+                    variables = ContextVariables(input_str)
+                elif input_str is None and input_vars is not None:
+                    variables = input_vars
+                elif input_str is not None and input_vars is not None:
+                    variables = ContextVariables(input_str)
+                    variables = variables.merge_or_overwrite(
+                        new_vars=input_vars, overwrite=False
+                    )
+                else:
+                    variables = ContextVariables()
+                context = SKContext(
+                    variables,
+                    self._memory,
+                    self._skill_collection.read_only_skill_collection,
+                    self._log,
+                )
+        else:
+            raise ValueError("No functions passed to run")
+
+        try:
+            completion = ""
+            async for stream_message in stream_function.invoke_stream_async(
+                input=None, context=context
+            ):
+                completion += stream_message
+                yield stream_message
+
+        except Exception as ex:
+            # TODO: "critical exceptions"
+            self._log.error(
+                "Something went wrong in stream function. During function invocation:"
+                f" '{stream_function.skill_name}.{stream_function.name}'. Error"
+                f" description: '{str(ex)}'"
+            )
+            raise KernelException(
+                KernelException.ErrorCodes.FunctionInvokeError,
+                "Error occurred while invoking stream function",
+            )
+
     async def run_async(
         self,
         *functions: Any,
@@ -144,16 +253,17 @@ class Kernel:
         if input_context is not None:
             context = input_context
             if input_vars is not None:
-                context._variables = input_vars.merge_or_overwrite(
-                    new_vars=context._variables, overwrite=False
+                context.variables = input_vars.merge_or_overwrite(
+                    new_vars=context.variables, overwrite=False
                 )
 
             if input_str is not None:
-                context._variables = ContextVariables(input_str).merge_or_overwrite(
-                    new_vars=context._variables, overwrite=False
+                context.variables = ContextVariables(input_str).merge_or_overwrite(
+                    new_vars=context.variables, overwrite=False
                 )
 
-        # if the user did not pass in a context, prioritize an input string, and merge that with input context variables
+        # if the user did not pass in a context, prioritize an input string,
+        # and merge that with input context variables
         else:
             if input_str is not None and input_vars is None:
                 variables = ContextVariables(input_str)
@@ -263,8 +373,13 @@ class Kernel:
             self._log.debug(f"Importing skill {skill_name}")
 
         functions = []
+
+        if isinstance(skill_instance, dict):
+            candidates = skill_instance.items()
+        else:
+            candidates = inspect.getmembers(skill_instance, inspect.ismethod)
         # Read every method from the skill instance
-        for _, candidate in inspect.getmembers(skill_instance, inspect.ismethod):
+        for _, candidate in candidates:
             # If the method is a semantic function, register it
             if not hasattr(candidate, "__sk_function__"):
                 continue
@@ -280,8 +395,10 @@ class Kernel:
         if len(function_names) != len(set(function_names)):
             raise KernelException(
                 KernelException.ErrorCodes.FunctionOverloadNotSupported,
-                "Overloaded functions are not supported, "
-                "please differentiate function names.",
+                (
+                    "Overloaded functions are not supported, "
+                    "please differentiate function names."
+                ),
             )
 
         skill = {}
@@ -563,9 +680,11 @@ class Kernel:
             if service is None:
                 raise AIException(
                     AIException.ErrorCodes.InvalidConfiguration,
-                    "Could not load chat service, unable to prepare semantic function. "
-                    "Function description: "
-                    "{function_config.prompt_template_config.description}",
+                    (
+                        "Could not load chat service, unable to prepare semantic"
+                        " function. Function description:"
+                        " {function_config.prompt_template_config.description}"
+                    ),
                 )
 
             function.set_chat_service(lambda: service(self))
@@ -586,9 +705,11 @@ class Kernel:
             if service is None:
                 raise AIException(
                     AIException.ErrorCodes.InvalidConfiguration,
-                    "Could not load text service, unable to prepare semantic function. "
-                    "Function description: "
-                    "{function_config.prompt_template_config.description}",
+                    (
+                        "Could not load text service, unable to prepare semantic"
+                        " function. Function description:"
+                        " {function_config.prompt_template_config.description}"
+                    ),
                 )
 
             function.set_ai_service(lambda: service(self))

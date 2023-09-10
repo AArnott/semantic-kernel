@@ -6,6 +6,9 @@ using System.Linq;
 
 namespace Microsoft.SemanticKernel.Services;
 
+/// <summary>
+/// A collection of AI services that can be registered and built into an <see cref="IAIServiceProvider"/>.
+/// </summary>
 [System.Diagnostics.CodeAnalysis.SuppressMessage("Naming", "CA1711:Identifiers should not have incorrect suffix")]
 public class AIServiceCollection
 {
@@ -13,7 +16,6 @@ public class AIServiceCollection
     private const string DefaultKey = "__DEFAULT__";
 
     // A dictionary that maps a service type to a nested dictionary of names and service instances or factories
-    //private readonly Dictionary<Type, Dictionary<string, object>> _services = new();
     private readonly Dictionary<Type, Dictionary<string, Func<object>>> _services = new();
 
     // A dictionary that maps a service type to the name of the default service
@@ -26,7 +28,7 @@ public class AIServiceCollection
     /// <param name="service">The service instance.</param>
     /// <exception cref="ArgumentNullException">The service instance is null.</exception>
     public void SetService<T>(T service) where T : IAIService
-        => this.SetService<T>(DefaultKey, service, true);
+        => this.SetService(DefaultKey, service, true);
 
     /// <summary>
     /// Registers a singleton service instance with an optional name and default flag.
@@ -90,9 +92,9 @@ public class AIServiceCollection
     }
 
     /// <summary>
-    ///  Builds an <see cref="INamedServiceProvider{TService}"/> from the registered services and default names.
+    /// Builds an <see cref="IAIServiceProvider"/> from the registered services and default names.
     /// </summary>
-    /// <returns></returns>
+    /// <returns>An <see cref="IAIServiceProvider"/> containing the registered services.</returns>
     public IAIServiceProvider Build()
     {
         // Create a clone of the services and defaults Dictionaries to prevent further changes
@@ -112,5 +114,5 @@ public class AIServiceCollection
 
     private bool HasDefault<T>() where T : IAIService
         => this._defaultIds.TryGetValue(typeof(T), out var defaultName)
-           && !string.IsNullOrEmpty(defaultName);
+            && !string.IsNullOrEmpty(defaultName);
 }

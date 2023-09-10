@@ -9,27 +9,30 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Microsoft.SemanticKernel.Reliability;
-
+/// <summary>
+/// A delegating handler that provides retry logic for HTTP requests.
+/// </summary>
+[Obsolete("Usage of Semantic Kernel internal retry abstractions is deprecated.\nCheck KernelSyntaxExamples.Example42_KernelBuilder.cs for alternatives")]
 public sealed class DefaultHttpRetryHandler : DelegatingHandler
 {
     /// <summary>
     /// Initializes a new instance of the <see cref="DefaultHttpRetryHandler"/> class.
     /// </summary>
     /// <param name="config">The retry configuration.</param>
-    /// <param name="log">The logger.</param>
-    public DefaultHttpRetryHandler(HttpRetryConfig? config = null, ILogger? log = null)
-        : this(config ?? new HttpRetryConfig(), log, null, null)
+    /// <param name="loggerFactory">The <see cref="ILoggerFactory"/> to use for logging. If null, no logging will be performed.</param>
+    public DefaultHttpRetryHandler(HttpRetryConfig? config = null, ILoggerFactory? loggerFactory = null)
+        : this(config ?? new HttpRetryConfig(), loggerFactory, null, null)
     {
     }
 
     internal DefaultHttpRetryHandler(
         HttpRetryConfig config,
-        ILogger? log = null,
+        ILoggerFactory? loggerFactory = null,
         IDelayProvider? delayProvider = null,
         ITimeProvider? timeProvider = null)
     {
         this._config = config;
-        this._log = log ?? NullLogger.Instance;
+        this._logger = loggerFactory is not null ? loggerFactory.CreateLogger(typeof(DefaultHttpRetryHandler)) : NullLogger.Instance;
         this._delayProvider = delayProvider ?? new TaskDelayProvider();
         this._timeProvider = timeProvider ?? new DefaultTimeProvider();
     }
@@ -75,7 +78,7 @@ public sealed class DefaultHttpRetryHandler : DelegatingHandler
                 // just return
                 if (retryCount >= this._config.MaxRetryCount)
                 {
-                    this._log.LogError(
+                    this._logger.LogError(
                         "Error executing request, max retry count reached. Reason: {0}", reason);
                     return response;
                 }
@@ -85,7 +88,7 @@ public sealed class DefaultHttpRetryHandler : DelegatingHandler
                 if (!this.HasTimeForRetry(start, retryCount, response, out waitFor))
                 {
                     var timeTaken = this._timeProvider.GetCurrentTime() - start;
-                    this._log.LogError(
+                    this._logger.LogError(
                         "Error executing request, max total retry time reached. Reason: {0}. Time spent: {1}ms", reason,
                         timeTaken.TotalMilliseconds);
                     return response;
@@ -96,14 +99,14 @@ public sealed class DefaultHttpRetryHandler : DelegatingHandler
                 reason = e.GetType().ToString();
                 if (retryCount >= this._config.MaxRetryCount)
                 {
-                    this._log.LogError(e,
+                    this._logger.LogError(e,
                         "Error executing request, max retry count reached. Reason: {0}", reason);
                     throw;
                 }
                 else if (!this.HasTimeForRetry(start, retryCount, response, out waitFor))
                 {
                     var timeTaken = this._timeProvider.GetCurrentTime() - start;
-                    this._log.LogError(
+                    this._logger.LogError(
                         "Error executing request, max total retry time reached. Reason: {0}. Time spent: {1}ms", reason,
                         timeTaken.TotalMilliseconds);
                     throw;
@@ -111,7 +114,7 @@ public sealed class DefaultHttpRetryHandler : DelegatingHandler
             }
 
             // If the request requires a retry then we'll retry
-            this._log.LogWarning(
+            this._logger.LogWarning(
                 "Error executing action [attempt {0} of {1}]. Reason: {2}. Will retry after {3}ms",
                 retryCount + 1,
                 this._config.MaxRetryCount,
@@ -161,7 +164,7 @@ public sealed class DefaultHttpRetryHandler : DelegatingHandler
     }
 
     private readonly HttpRetryConfig _config;
-    private readonly ILogger _log;
+    private readonly ILogger _logger;
     private readonly IDelayProvider _delayProvider;
     private readonly ITimeProvider _timeProvider;
 

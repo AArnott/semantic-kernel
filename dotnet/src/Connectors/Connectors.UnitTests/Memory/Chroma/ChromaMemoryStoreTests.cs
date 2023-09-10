@@ -7,9 +7,9 @@ using System.Net.Http;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.SemanticKernel.AI.Embeddings;
 using Microsoft.SemanticKernel.Connectors.Memory.Chroma;
 using Microsoft.SemanticKernel.Connectors.Memory.Chroma.Http.ApiSchema;
+using Microsoft.SemanticKernel.Diagnostics;
 using Microsoft.SemanticKernel.Memory;
 using Moq;
 using Xunit;
@@ -27,6 +27,7 @@ public sealed class ChromaMemoryStoreTests : IDisposable
     private readonly HttpMessageHandlerStub _messageHandlerStub;
     private readonly HttpClient _httpClient;
     private readonly Mock<IChromaClient> _chromaClientMock;
+    private readonly JsonSerializerOptions _serializerOptions;
 
     public ChromaMemoryStoreTests()
     {
@@ -37,6 +38,11 @@ public sealed class ChromaMemoryStoreTests : IDisposable
         this._chromaClientMock
             .Setup(client => client.GetCollectionAsync(CollectionName, CancellationToken.None))
             .ReturnsAsync(new ChromaCollectionModel { Id = CollectionId, Name = CollectionName });
+
+        this._serializerOptions = new JsonSerializerOptions
+        {
+            Converters = { new ChromaBooleanConverter() }
+        };
     }
 
     [Fact]
@@ -102,12 +108,12 @@ public sealed class ChromaMemoryStoreTests : IDisposable
     {
         // Arrange
         const string collectionName = "non-existent-collection";
-        const string deleteNonExistentCollectionErrorMessage = "list index out of range";
+        const string collectionDoesNotExistErrorMessage = $"Collection {collectionName} does not exist";
         const string expectedExceptionMessage = $"Cannot delete non-existent collection {collectionName}";
 
         this._chromaClientMock
             .Setup(client => client.DeleteCollectionAsync(collectionName, CancellationToken.None))
-            .Throws(new ChromaClientException(deleteNonExistentCollectionErrorMessage));
+            .Throws(new HttpOperationException { ResponseContent = collectionDoesNotExistErrorMessage });
 
         var store = new ChromaMemoryStore(this._chromaClientMock.Object);
 
@@ -115,7 +121,7 @@ public sealed class ChromaMemoryStoreTests : IDisposable
         var exception = await Record.ExceptionAsync(() => store.DeleteCollectionAsync(collectionName));
 
         // Assert
-        Assert.IsType<ChromaMemoryStoreException>(exception);
+        Assert.IsType<SKException>(exception);
         Assert.Equal(expectedExceptionMessage, exception.Message);
     }
 
@@ -141,7 +147,7 @@ public sealed class ChromaMemoryStoreTests : IDisposable
 
         this._chromaClientMock
             .Setup(client => client.GetCollectionAsync(collectionName, CancellationToken.None))
-            .Throws(new ChromaClientException(collectionDoesNotExistErrorMessage));
+            .Throws(new HttpOperationException { ResponseContent = collectionDoesNotExistErrorMessage });
 
         var store = new ChromaMemoryStore(this._chromaClientMock.Object);
 
@@ -202,7 +208,7 @@ public sealed class ChromaMemoryStoreTests : IDisposable
 
         this._chromaClientMock
             .Setup(client => client.GetCollectionAsync(collectionName, CancellationToken.None))
-            .Throws(new ChromaClientException(collectionDoesNotExistErrorMessage));
+            .Throws(new SKException(collectionDoesNotExistErrorMessage));
 
         var store = new ChromaMemoryStore(this._chromaClientMock.Object);
 
@@ -210,7 +216,7 @@ public sealed class ChromaMemoryStoreTests : IDisposable
         var exception = await Record.ExceptionAsync(() => store.GetAsync(collectionName, memoryRecordKey, withEmbedding: true));
 
         // Assert
-        Assert.IsType<ChromaMemoryStoreException>(exception);
+        Assert.IsType<SKException>(exception);
         Assert.Equal(collectionDoesNotExistErrorMessage, exception.Message);
     }
 
@@ -280,7 +286,7 @@ public sealed class ChromaMemoryStoreTests : IDisposable
     private void AssertMemoryRecordEqual(MemoryRecord expectedRecord, MemoryRecord actualRecord)
     {
         Assert.Equal(expectedRecord.Key, actualRecord.Key);
-        Assert.Equal(expectedRecord.Embedding.Vector, actualRecord.Embedding.Vector);
+        Assert.True(expectedRecord.Embedding.Span.SequenceEqual(actualRecord.Embedding.Span));
         Assert.Equal(expectedRecord.Metadata.Id, actualRecord.Metadata.Id);
         Assert.Equal(expectedRecord.Metadata.Text, actualRecord.Metadata.Text);
         Assert.Equal(expectedRecord.Metadata.Description, actualRecord.Metadata.Description);
@@ -294,10 +300,10 @@ public sealed class ChromaMemoryStoreTests : IDisposable
         return new HttpClient(this._messageHandlerStub, false);
     }
 
-    private MemoryRecord GetRandomMemoryRecord(Embedding<float>? embedding = null)
+    private MemoryRecord GetRandomMemoryRecord(ReadOnlyMemory<float>? embedding = null)
     {
         var id = Guid.NewGuid().ToString();
-        var memoryEmbedding = embedding ?? new Embedding<float>(new[] { 1f, 3f, 5f });
+        var memoryEmbedding = embedding ?? new[] { 1f, 3f, 5f };
 
         return MemoryRecord.LocalRecord(
             id: id,
@@ -310,7 +316,7 @@ public sealed class ChromaMemoryStoreTests : IDisposable
 
     private Dictionary<string, object> GetEmbeddingMetadataFromMemoryRecord(MemoryRecord memoryRecord)
     {
-        var serialized = JsonSerializer.Serialize(memoryRecord.Metadata);
+        var serialized = JsonSerializer.Serialize(memoryRecord.Metadata, this._serializerOptions);
         return JsonSerializer.Deserialize<Dictionary<string, object>>(serialized)!;
     }
 
@@ -319,7 +325,7 @@ public sealed class ChromaMemoryStoreTests : IDisposable
         var embeddingsModel = new ChromaEmbeddingsModel();
 
         embeddingsModel.Ids.AddRange(memoryRecords.Select(l => l.Key));
-        embeddingsModel.Embeddings.AddRange(memoryRecords.Select(l => l.Embedding.Vector.ToArray()));
+        embeddingsModel.Embeddings.AddRange(memoryRecords.Select(l => l.Embedding.ToArray()));
         embeddingsModel.Metadatas.AddRange(memoryRecords.Select(this.GetEmbeddingMetadataFromMemoryRecord));
 
         return embeddingsModel;

@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using Microsoft.SemanticKernel.Http;
 using Microsoft.SemanticKernel.Memory;
 using Microsoft.SemanticKernel.Orchestration;
 using Microsoft.SemanticKernel.SemanticFunctions;
@@ -19,14 +20,9 @@ namespace Microsoft.SemanticKernel;
 public interface IKernel
 {
     /// <summary>
-    /// Settings required to execute functions, including details about AI dependencies, e.g. endpoints and API keys.
-    /// </summary>
-    KernelConfig Config { get; }
-
-    /// <summary>
     /// App logger
     /// </summary>
-    ILogger Log { get; }
+    ILoggerFactory LoggerFactory { get; }
 
     /// <summary>
     /// Semantic memory instance
@@ -42,6 +38,11 @@ public interface IKernel
     /// Reference to the read-only skill collection containing all the imported functions
     /// </summary>
     IReadOnlySkillCollection Skills { get; }
+
+    /// <summary>
+    /// Reference to Http handler factory
+    /// </summary>
+    IDelegatingHandlerFactory HttpHandlerFactory { get; }
 
     /// <summary>
     /// Build and register a function in the internal skill collection, in a global generic skill.
@@ -86,6 +87,18 @@ public interface IKernel
     /// </summary>
     /// <param name="memory">Semantic memory instance</param>
     void RegisterMemory(ISemanticTextMemory memory);
+
+    /// <summary>
+    /// Run a single synchronous or asynchronous <see cref="ISKFunction"/>.
+    /// </summary>
+    /// <param name="skFunction">A Semantic Kernel function to run</param>
+    /// <param name="variables">Input to process</param>
+    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
+    /// <returns>Result of the function</returns>
+    Task<SKContext> RunAsync(
+        ISKFunction skFunction,
+        ContextVariables? variables = null,
+        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Run a pipeline composed of synchronous and asynchronous functions.
@@ -161,9 +174,8 @@ public interface IKernel
     /// <summary>
     /// Create a new instance of a context, linked to the kernel internal state.
     /// </summary>
-    /// <param name="cancellationToken">Optional cancellation token for operations in context.</param>
     /// <returns>SK context</returns>
-    SKContext CreateNewContext(CancellationToken cancellationToken = default);
+    SKContext CreateNewContext();
 
     /// <summary>
     /// Get one of the configured services. Currently limited to AI services.

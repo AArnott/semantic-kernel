@@ -1,5 +1,6 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
@@ -7,7 +8,6 @@ using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.SemanticKernel.AI.Embeddings;
 using Microsoft.SemanticKernel.AI.Embeddings.VectorOperations;
 using Microsoft.SemanticKernel.Diagnostics;
 using Microsoft.SemanticKernel.Memory.Collections;
@@ -22,11 +22,9 @@ public class VolatileMemoryStore : IMemoryStore
     /// <inheritdoc/>
     public Task CreateCollectionAsync(string collectionName, CancellationToken cancellationToken = default)
     {
-        if (!this._store.TryAdd(collectionName, new ConcurrentDictionary<string, MemoryRecord>()))
-        {
-            return Task.FromException(new MemoryException(MemoryException.ErrorCodes.FailedToCreateCollection, $"Could not create collection {collectionName}"));
-        }
+        Verify.NotNullOrWhiteSpace(collectionName);
 
+        this._store.TryAdd(collectionName, new ConcurrentDictionary<string, MemoryRecord>());
         return Task.CompletedTask;
     }
 
@@ -47,7 +45,7 @@ public class VolatileMemoryStore : IMemoryStore
     {
         if (!this._store.TryRemove(collectionName, out _))
         {
-            return Task.FromException(new MemoryException(MemoryException.ErrorCodes.FailedToDeleteCollection, $"Could not delete collection {collectionName}"));
+            return Task.FromException(new SKException($"Could not delete collection {collectionName}"));
         }
 
         return Task.CompletedTask;
@@ -66,8 +64,7 @@ public class VolatileMemoryStore : IMemoryStore
         }
         else
         {
-            return Task.FromException<string>(new MemoryException(MemoryException.ErrorCodes.AttemptedToAccessNonexistentCollection,
-                $"Attempted to access a memory collection that does not exist: {collectionName}"));
+            return Task.FromException<string>(new SKException($"Attempted to access a memory collection that does not exist: {collectionName}"));
         }
 
         return Task.FromResult(record.Key);
@@ -134,9 +131,19 @@ public class VolatileMemoryStore : IMemoryStore
         return Task.WhenAll(keys.Select(k => this.RemoveAsync(collectionName, k, cancellationToken)));
     }
 
+    /// <summary>
+    /// Retrieves the nearest matches to the given embedding in the specified collection.
+    /// </summary>
+    /// <param name="collectionName">The name of the collection to search.</param>
+    /// <param name="embedding">The embedding to find the nearest matches for.</param>
+    /// <param name="limit">The maximum number of matches to return.</param>
+    /// <param name="minRelevanceScore">The minimum relevance score for a match to be included in the results.</param>
+    /// <param name="withEmbeddings">Whether to include the embeddings in the returned memory records.</param>
+    /// <param name="cancellationToken">A cancellation token to cancel the operation.</param>
+    /// <returns>An asynchronous enumerable of memory records and their relevance scores.</returns>
     public IAsyncEnumerable<(MemoryRecord, double)> GetNearestMatchesAsync(
         string collectionName,
-        Embedding<float> embedding,
+        ReadOnlyMemory<float> embedding,
         int limit,
         double minRelevanceScore = 0.0,
         bool withEmbeddings = false,
@@ -165,11 +172,11 @@ public class VolatileMemoryStore : IMemoryStore
             if (record != null)
             {
                 double similarity = embedding
-                    .AsReadOnlySpan()
-                    .CosineSimilarity(record.Embedding.AsReadOnlySpan());
+                    .Span
+                    .CosineSimilarity(record.Embedding.Span);
                 if (similarity >= minRelevanceScore)
                 {
-                    var entry = withEmbeddings ? record : MemoryRecord.FromMetadata(record.Metadata, Embedding<float>.Empty, record.Key, record.Timestamp);
+                    var entry = withEmbeddings ? record : MemoryRecord.FromMetadata(record.Metadata, ReadOnlyMemory<float>.Empty, record.Key, record.Timestamp);
                     embeddings.Add(new(entry, similarity));
                 }
             }
@@ -177,13 +184,13 @@ public class VolatileMemoryStore : IMemoryStore
 
         embeddings.SortByScore();
 
-        return embeddings.Select(x => (x.Value, x.Score.Value)).ToAsyncEnumerable();
+        return embeddings.Select(x => (x.Value, x.Score)).ToAsyncEnumerable();
     }
 
     /// <inheritdoc/>
     public async Task<(MemoryRecord, double)?> GetNearestMatchAsync(
         string collectionName,
-        Embedding<float> embedding,
+        ReadOnlyMemory<float> embedding,
         double minRelevanceScore = 0.0,
         bool withEmbedding = false,
         CancellationToken cancellationToken = default)
@@ -198,7 +205,13 @@ public class VolatileMemoryStore : IMemoryStore
     }
 
     #region protected ================================================================================
-
+    /// <summary>
+    /// Tries to get the collection with the specified name.
+    /// </summary>
+    /// <param name="name">The name of the collection to get.</param>
+    /// <param name="collection">The retrieved collection, if found.</param>
+    /// <param name="create">Whether to create the collection if it does not exist.</param>
+    /// <returns>True if the collection was found or created, false otherwise.</returns>
     protected bool TryGetCollection(
         string name,
         [NotNullWhen(true)] out ConcurrentDictionary<string,

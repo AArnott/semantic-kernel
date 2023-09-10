@@ -55,7 +55,10 @@ class OpenAITextCompletion(TextCompletionClientBase):
         self._log = log if log is not None else NullLogger()
 
     async def complete_async(
-        self, prompt: str, request_settings: CompleteRequestSettings
+        self,
+        prompt: str,
+        request_settings: CompleteRequestSettings,
+        logger: Optional[Logger] = None,
     ) -> Union[str, List[str]]:
         # TODO: tracking on token counts/etc.
         response = await self._send_completion_request(prompt, request_settings, False)
@@ -68,7 +71,10 @@ class OpenAITextCompletion(TextCompletionClientBase):
     # TODO: complete w/ multiple...
 
     async def complete_stream_async(
-        self, prompt: str, request_settings: CompleteRequestSettings
+        self,
+        prompt: str,
+        request_settings: CompleteRequestSettings,
+        logger: Optional[Logger] = None,
     ):
         response = await self._send_completion_request(prompt, request_settings, True)
 
@@ -141,6 +147,12 @@ class OpenAITextCompletion(TextCompletionClientBase):
                     if request_settings.stop_sequences is not None
                     and len(request_settings.stop_sequences) > 0
                     else None
+                ),
+                logit_bias=(
+                    request_settings.token_selection_biases
+                    if request_settings.token_selection_biases is not None
+                    and len(request_settings.token_selection_biases) > 0
+                    else {}
                 ),
             )
         except Exception as ex:
